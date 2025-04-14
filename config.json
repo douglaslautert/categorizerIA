@@ -1,0 +1,68 @@
+{
+  "openai": {
+    "provider": "openai",
+    "modelo": "gpt-4o",
+    "api_key": "",
+    "uri": "https://api.openai.com/v1/",
+    "usar_prompt_local": false
+  },
+  "meta": {
+    "provider": "meta",
+    "modelo": "llama3.1-70b",
+    "api_key": "",
+    "uri": "https://api.llama-api.com",
+    "usar_prompt_local": false
+  },"meta_local": {
+    "provider": "meta_local_3",
+    "modelo": "meta-llama/Llama-3.1-8B-Instruct",
+    "uri": "http://localhost:1234/v1",
+    "api_key":"lm-studio",
+    "usar_prompt_local": true
+  },
+  "zysec": {
+    "provider": "zysec",
+    "modelo": "ZySec-AI/SecurityLLM",
+    "usar_prompt_local": true
+  },
+  "deepseek": {
+    "provider": "deepseek",
+    "modelo": "deepseek-ai/DeepSeek-R1",
+    "usar_prompt_local": true,
+    "config_model": "trust_remote_code=True"
+  },
+  "gemini": {
+    "provider": "gemini",
+    "modelo": "gemini-2.0-flash",
+    "api_key": "",
+    "uri": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "usar_prompt_local": false
+  },
+  "glock": {
+    "provider": "glock",
+    "modelo": "grok-beta",
+    "api_key": "",
+    "uri": "https://api.x.ai/v1",
+    "usar_prompt_local": false
+  },
+  "local": {
+    "provider": "local",
+    "modelo": "gpt2",
+    "usar_prompt_local": true
+  },
+  "llama3": {
+    "provider": "llama3",
+    "modelo": "",
+    "usar_prompt_local": true
+  },
+  "mistralai": {
+    "provider": "mistralai",
+    "modelo": "mistralai/Mistral-Small-24B-Instruct-2501",
+    "usar_prompt_local": true
+  },"googlelocal": {
+    "provider": "googlelocal",
+    "modelo": "google/gemma-2-9b-it",
+    "usar_prompt_local": true
+  },
+  "ativos": ["deepseek","meta", "openai", "gemini", "local","zysec","glock","llama3","mistralai","googlelocal","meta_local"],
+  "hugginface_api_key": ""
+}
