@@ -155,7 +155,7 @@ def gerar_dica(prompt):
     """
     Gera uma dica progressiva com base na resposta anterior.
     """
-    prompt_dica = f"""Hint: The answer is near: {prompt} """
+    prompt_dica = f"""Dica: A categoria está próxima de: {prompt} """
     return prompt_dica
 
 
@@ -192,27 +192,27 @@ def extrair_security_incidents(texto):
     if is_valid_json(texto):
         dados = json.loads(texto)
         # Verifica se o JSON contém as chaves 'Category' e 'Explanation'
-        if "Category" in dados and "Explanation" in dados:
+        if "Categoria" in dados and "Explicacao" in dados:
             return {
-                "Category": dados["Category"].strip(),
-                "Explanation": dados["Explanation"].strip()
+                "Category": dados["Categoria"].strip(),
+                "Explanation": dados["Explicacao"].strip()
             }
 
     # Caso o texto não seja um JSON válido, continua com regex
-    padrao = r"Category:\s*(.*?)\s*Explanation:\s*(.*?)(?=\n|$)"
+    padrao = r"(?:\*\*Categoria:\*\*|Categoria:)\s*(.*?)\s*(?:\*\*Explicação:\*\*|Explicacao:|Explicacao:)\s*(.*?)(?=\n|$)"
     matches = re.findall(padrao, texto, re.DOTALL)
 
     # Retorna apenas a última ocorrência válida, se existir
     if matches:
         ultima_ocorrencia = matches[-1]
         return {
-            "Category": ultima_ocorrencia[0].replace("*", "").replace("\n", "").strip(),
-            "Explanation": ultima_ocorrencia[1].replace("*", "").replace("\n", "").strip()
+            "Categoria": ultima_ocorrencia[0].replace("*", "").replace("\n", "").strip(),
+            "Explicacao": ultima_ocorrencia[1].replace("*", "").replace("\n", "").strip()
         }
     else:
-        return {"Category": "UNKNOWN", "Explanation": "UNKNOWN"}
+        return {"Categoria": "Desconhecido", "Explanation": "Desconhecido"}
 
-        
+    
 def progressive_hints(prompt, row, colunas, max_hints=4, limite_rouge=0.9):
     """
     Implementa a funcionalidade de progressive hints.
@@ -233,6 +233,7 @@ def progressive_hints(prompt, row, colunas, max_hints=4, limite_rouge=0.9):
     rouge_score = 0.0
 
     if max_hints == 0:
+        print(f"Resposta 0: {resposta}")
         resultados.append({
             
             "informacoes_das_colunas": informacoes_das_colunas,
@@ -240,22 +241,25 @@ def progressive_hints(prompt, row, colunas, max_hints=4, limite_rouge=0.9):
             "rouge": rouge_score,
             "hints": 0
         })
+        print(f"Resposta: {extrair_security_incidents(nova_resposta)}")
         return resultados
 
     for i in range(max_hints):
         # Gera uma dica com base na resposta anterior
-        dica = gerar_dica(extrair_security_incidents(resposta_anterior)["Category"])
-        prompt = f"{prompt} {dica}  "  # Adiciona a dica ao prompt
+        dica = gerar_dica(extrair_security_incidents(resposta_anterior)["Categoria"])
+        prompt = f""" {dica} {prompt}"""
         nova_resposta = enviar_prompt_para_llm(prompt)
+        
         #print(f"Dica {i + 1}: {nova_resposta}")
         # Calcula o ROUGE Score entre a resposta anterior e a nova resposta
-        rouge_score = calcular_rouge_score(extrair_security_incidents(resposta_anterior)["Category"],extrair_security_incidents(nova_resposta)["Category"])
+        rouge_score = calcular_rouge_score(extrair_security_incidents(resposta_anterior)["Categoria"],extrair_security_incidents(nova_resposta)["Categoria"])
         
        
 
         # Interrompe se atingir o limite de ROUGE ou o número máximo de dicas
         if (i + 1) == max_hints or rouge_score >= limite_rouge:
              # Salva os resultados na lista
+            print(f"Resposta {i + 1}: {nova_resposta}")
             resultados.append({
                 "informacoes_das_colunas": informacoes_das_colunas,
                 **extrair_security_incidents(nova_resposta),
@@ -439,10 +443,10 @@ def main():
 
             # Construção do prompt
             prompt = f"""
-                You are a security expert.
-                Categorize the following incident description into a Category and a Explanation.
+            Você é um especialista em segurança. 
+            Categorize a seguinte descrição de incidente em uma Categoria e uma Explicação. 
 
-                Description:
+            Descrição:
                 ```
             """
             for coluna in args.colunas:
@@ -453,40 +457,42 @@ def main():
             if args.nist:
                 prompt += f"""
                 ```
-                Conform NIST Category:
-                CAT 0 - Network Defense Exercise/Test Activities related to security testing, exercises or incident simulations.
-                CAT 1 - Unauthorized Access When a person gains logical or physical access to systems, networks or data without permission.
-                CAT 2 - Denial of Service (DoS) Attacks intended to interrupt the normal functioning of a system, service or network.
-                CAT 3 - Malicious Code Successful installation or execution of malicious software, such as viruses, worms, trojans, ransomware, etc.
-                CAT 4 - Misuse Violation of acceptable use policies for systems and networks, such as improper personal use or improper access.
-                CAT 5 - Scanning/Probing Reconnaissance activities, such as port scanning, unsuccessful exploitation attempts.
-                CAT 6 - Investigation Potential incidents that are still under analysis or that have been reported without confirmation of compromise.
-                
-                Rules for returning the NIST Category and Explanation:
-                - If no clear Category is found, return "Unknown"
-                - If no clear Explanation is found, return "Unknown"
-                
-                
-                OUTPUT:
-                
-                Category: 'Category containing the incident Nist Category'
-                Explanation: 'Explanation containing the incident Explanation'
-                
+                Conforme o CSV da Categorização NIST:
+                CATEGORIA; TITULO; DESCRIÇÃO; EXEMPLOS; PRIORIDADE
+                CAT1; Comprometimento de Conta; Acesso não autorizado a contas de usuários ou administradores; Phishing de credenciais, brute force SSH, comprometimento de SSO; 5
+                CAT2; Malware; Infecção por código malicioso que compromete dispositivos ou dados; Ransomware, vírus de macro, cavalo de Troia, spyware; 5
+                CAT3; Ataque de Negação de Serviço (DoS/DDoS); tornar sistemas ou redes indisponíveis; DDoS HTTP/S, UDP flood, ataque a APIs públicas; 4
+                CAT4; Exfiltração ou Vazamento de Dados; Acesso, cópia ou divulgação não autorizada de dados sensíveis; Roubo de banco de dados, vazamento de credenciais; 5
+                CAT5; Exploração de Vulnerabilidade; Uso de falhas conhecidas ou desconhecidas para comprometer ativos; Exploração de CVE, SQL Injection, execução remota de código; 5
+                CAT6; Abuso Interno; Ações intencionais ou negligentes de usuários internos; Cópia de dados sigilosos, sabotagem de sistemas; 5
+                CAT7; Engenharia Social; Engano de pessoas para obter acesso ou informações; Phishing, vishing, pretexting, fraude do CEO; 3
+                CAT8; Incidente Físico ou de Infraestrutura; Violação física que impacta ativos computacionais; Roubo de notebook, arrombamento de datacenter; 4
+                CAT9; Alteração Não Autorizada; Modificação não autorizada em sistemas; dados ou configurações, Defacement de websites, manipulação de registros; 3
+                CAT10; Uso Indevido de Recursos; Uso não autorizado de sistemas para outros fins; Mineração de criptomoeda, distribuição de malware; 2
+                CAT11; Problema de Fornecedor/Terceiro; Incidente originado por falha de segurança de terceiros; Breach em provedor cloud, ataque de supply chain; 4;
+                CAT12; Tentativa de Intrusão; Tentativas hostis de invasão ainda não confirmadas como bem-sucedidas; Scans de rede, brute force SSH, exploits bloqueados; 3
+
+                Regras para retornar o Categoria e a Explicação do NIST:
+                - Se nenhuma Categoria clara for encontrada, retorne "Desconhecido"
+                - Se nenhuma Explicação clara for encontrada, retorne "Desconhecido"
+                SAÍDA:
+
+                Categoria: 'Categoria contendo o código da Categoria NIST do incidente'
+                Explicacao: 'Explicação do NIST do incidente gerado'
                 """
             else:
                 prompt += f"""
                 ```
-                Rules for returning the Category and Explanation:
-                - If no clear Category is found, return "Unknown"
-                - If no clear Explanation is found, return "Unknown"
-                
-                OUTPUT ONLY:
-                
-                Category: 'Category containing the incident Category'
-                Explanation: 'Explanation containing the incident Explanation'
+                Regras para retornar a Categoria e a Explicação do NIST:
+                - Se nenhuma Categoria clara for encontrada, retorne "Desconhecido"
+                - Se nenhuma Explicação clara for encontrada, retorne "Desconhecido"
+                               
+                SAÍDA:
+
+                Categoria: 'Categoria contendo a Categoria do incidente'
+                Explicacao: 'Explicação contendo a Explicação do incidente'                
                 
                 """
-            
             resultado_analisado = progressive_hints(prompt, row, args.colunas, max_hints=args.limite_hint, limite_rouge=args.limite_rouge)
             resultados.extend(resultado_analisado)
 
