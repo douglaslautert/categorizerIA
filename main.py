@@ -466,7 +466,7 @@ def main():
                 "CAT2"; "Malware"; "Infection by malicious code that compromises devices or data"; "Ransomware, macro virus, Trojan horse, spyware"; "5"
                 "CAT3"; "Denial of Service Attack (DoS/DDoS)"; "Making systems or networks unavailable"; "HTTP/S DDoS, UDP flood, attack on public APIs"; "4"
                 "CAT4"; "Data Exfiltration or Leakage"; "Unauthorized access, copying, or disclosure of sensitive data"; "Database theft, credential leakage"; "5"
-                "CAT5"; "Vulnerability Exploitation"; "Using known or unknown flaws to compromise assets; CVE exploitation, SQL Injection, remote code execution"; "5"
+                "CAT5"; "Vulnerability Exploitation"; "Using known or unknown flaws to compromise assets"; "CVE exploitation, SQL Injection, remote code execution"; "5"
                 "CAT6"; "Internal Abuse"; "Intentional or negligent actions by internal users"; "Copying confidential data, system sabotage"; "5"
                 "CAT7"; "Social Engineering"; "Deceiving people to gain access or information"; "Phishing, vishing, pretexting, CEO fraud"; "3"
                 "CAT8"; "Physical or Infrastructure Incident"; "Physical violation impacting computational assets"; "Laptop theft, data center break-in"; "4"
@@ -494,6 +494,8 @@ def main():
                 Explicacao: [Detailed Description of the Category]
                 
                 """
+               
+    
             resultado_analisado = progressive_hints(prompt, row, args.colunas, max_hints=args.limite_hint, limite_rouge=args.limite_rouge)
             resultados.extend(resultado_analisado)
 
