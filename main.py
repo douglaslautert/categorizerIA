@@ -497,8 +497,7 @@ def main():
                 Category: [NIST code]
                 Explanation: [Justification for the chosen category]
                 ```
-
-            Let me know if you need any refinements!"""
+                Let me know if you need any refinements!"""
             else:
                 prompt += f"""
                 ```
