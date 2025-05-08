@@ -459,36 +459,52 @@ def main():
 
             if args.nist:
                 prompt += f"""
-                ```
-                Conform the CSV of Nist categories:
-                CODE; TITLE; DESCRIPTION; EXAMPLES; PRIORITY
-                "CAT1"; "Account Compromise"; "Unauthorized access to user or administrator accounts"; "Credential phishing, SSH brute force, SSO compromise"; "5"
-                "CAT2"; "Malware"; "Infection by malicious code that compromises devices or data"; "Ransomware, macro virus, Trojan horse, spyware"; "5"
-                "CAT3"; "Denial of Service Attack (DoS/DDoS)"; "Making systems or networks unavailable"; "HTTP/S DDoS, UDP flood, attack on public APIs"; "4"
-                "CAT4"; "Data Exfiltration or Leakage"; "Unauthorized access, copying, or disclosure of sensitive data"; "Database theft, credential leakage"; "5"
-                "CAT5"; "Vulnerability Exploitation"; "Using known or unknown flaws to compromise assets"; "CVE exploitation, SQL Injection, remote code execution"; "5"
-                "CAT6"; "Internal Abuse"; "Intentional or negligent actions by internal users"; "Copying confidential data, system sabotage"; "5"
-                "CAT7"; "Social Engineering"; "Deceiving people to gain access or information"; "Phishing, vishing, pretexting, CEO fraud"; "3"
-                "CAT8"; "Physical or Infrastructure Incident"; "Physical violation impacting computational assets"; "Laptop theft, data center break-in"; "4"
-                "CAT9"; "Unauthorized Modification"; "Unauthorized changes to systems, data, or configurations; Website defacement, record manipulation"; "3"
-                "CAT10"; "Resource Misuse"; "Unauthorized use of systems for other purposes"; "Cryptocurrency mining, malware distribution"; "2"
-                "CAT11"; "Vendor/Third-Party Issue"; "Incident originating from a third-party security failure"; "Cloud provider breach, supply chain attack"; "4"
-                "CAT12"; "Intrusion Attempt"; "Hostile invasion attempts not yet confirmed successful"; "Network scans, SSH brute force, blocked exploits"; "3"
+                                NIST Categories Available for Classification:
+                - CAT1: Account Compromise – unauthorized access to user or administrator accounts.
+                    Examples: credential phishing, SSH brute force, OAuth token theft.
+                - CAT2: Malware – infection by malicious code.
+                    Examples: ransomware, Trojan horse, macro virus.
+                - CAT3: Denial of Service Attack – making systems unavailable.
+                    Examples: volumetric DoS or DDoS (UDP flood, SYN flood, HTTP, HTTPS), attack on publicly available APIs or websites, botnet Mirai attacking an institution's server.
+                - CAT4: Data Leak – unauthorized disclosure of sensitive data.
+                    Examples: database theft, leaked credentials.
+                - CAT5: Vulnerability Exploitation – using technical flaws for attacks.
+                    Examples: exploitation of critical CVE, remote code execution (RCE), SQL injection in web applications. Includes known vulnerabilities or insecure patterns that allow remote exploitation without authentication, traffic amplification, or information leaks, such as NTP servers with monlist/readvar commands enabled, DNS responding to ANY queries, or Memcached servers open to the internet.
+                - CAT6: Insider Abuse – malicious actions by internal users.
+                    Examples: copying confidential data, sabotage.
+                - CAT7: Social Engineering – deception to gain access or data.
+                    Examples: phishing, vishing, CEO fraud.
+                - CAT8: Physical Incident – impact due to unauthorized physical access.
+                    Examples: laptop theft, data center break-in.
+                - CAT9: Unauthorized Modification – improper changes to systems or data.
+                    Examples: defacement, record manipulation.
+                - CAT10: Misuse of Resources – unauthorized use for other purposes.
+                    Examples: cryptocurrency mining, malware distribution.
+                - CAT11: Third-Party Issues – security failures by suppliers.
+                    Examples: SaaS breach, supply chain attack.
+                - CAT12: Intrusion Attempt – unconfirmed attacks.
+                    Examples: network scans, brute force, blocked exploits.
 
-                Rules for returning the NIST Category and Explanation:
-                - If no clear Category is found, return "Desconhecido"
-                - If no clear Explanation is found, return "Desconhecido"
+                Your task:
+                - Classify the incident below using the most appropriate category code (CAT1 to CAT12).
+                - Justify based on the explanation of the selected category.
+
+                If classification is not possible, return:
+                Category: Unknown
+                Explanation: Unknown
+
                 OUTPUT:
+                Category: [NIST code]
+                Explanation: [Justification for the chosen category]
+                ```
 
-                Category: [Category containing the incident's NIST Category code]
-                Explanation: [NIST explanation of the incident generated]
-                """
+            Let me know if you need any refinements!"""
             else:
                 prompt += f"""
                 ```
                 Rules for returning the Category and NIST Explanation:
-                - If no clear Category is found, return "Unknown."
-                - If no clear Explanation is found, return "Unknown."
+                - If no clear Category is found, return "Desconhecido."
+                - If no clear Explanation is found, return "Desconhecido."
 
                 Categoria: [Identified Category Title]
                 Explicacao: [Detailed Description of the Category]
