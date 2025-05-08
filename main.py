@@ -505,8 +505,8 @@ def main():
                 - If no clear Category is found, return "Desconhecido."
                 - If no clear Explanation is found, return "Desconhecido."
 
-                Categoria: [Identified Category Title]
-                Explicacao: [Detailed Description of the Category]
+                Category: [Identified Category Title]
+                Explanation: [Detailed Description of the Category]
                 
                 """
                
