@@ -136,7 +136,7 @@ def enviar_prompt_para_llm(prompt):
     Decide se envia o prompt para a API ou para o LLM local,
     com base na variável global `use_local_llm`.
     """
-    
+    time.sleep(1.5)  # Adiciona um pequeno atraso para evitar sobrecarga de requisições
     if use_local_llm:
         return enviar_prompt_para_local(prompt)
     else:
@@ -175,6 +175,16 @@ def is_valid_json(texto):
     except json.JSONDecodeError:
         return False
 
+def extrair_cat(texto):
+    """
+    Procura e retorna o primeiro código CAT (CAT1 a CAT12) encontrado no texto.
+    Se não encontrar, retorna None.
+    """
+    import re
+    match = re.search(r'\bCAT([1-9]|1[0-2])\b', texto.upper())
+    if match:
+        return f"CAT{match.group(1)}"
+    return texto
 
 def extrair_security_incidents(texto):
     """
@@ -206,20 +216,20 @@ def extrair_security_incidents(texto):
     if matches:
         ultima_ocorrencia = matches[-1]
         return {
-            "Category": ultima_ocorrencia[0].replace("*", "").replace("\n", "").strip(),
+            "Category": extrair_cat(ultima_ocorrencia[0].replace("*", "").replace("\n", "").strip()),
             "Explanation": ultima_ocorrencia[1].replace("*", "").replace("\n", "").strip()
         }
     else:
-        return {"Category": "Desconhecido", "Explanation": "Desconhecido"}
+        return {"Category": "unknown", "Explanation": "unknown"}
 
     
-def progressive_hints(prompt, row, colunas, max_hints=4, limite_rouge=0.9):
+def progressive_hint_prompting(prompt, row, colunas, max_hints=4, limite_rouge=0.9):
     """
     Implementa a funcionalidade de progressive hints.
     Gera dicas progressivas usando o próprio LLM com base na resposta anterior.
     Interrompe a execução se o ROUGE Score entre as respostas for maior que o limite.
     """
-    resposta = enviar_prompt_para_llm(prompt)
+    resposta = enviar_prompt_para_llm(prompt+output)
     
     resposta_anterior = resposta
     
@@ -247,8 +257,8 @@ def progressive_hints(prompt, row, colunas, max_hints=4, limite_rouge=0.9):
     for i in range(max_hints):
         # Gera uma dica com base na resposta anterior
         dica = gerar_dica(extrair_security_incidents(resposta_anterior)["Category"])
-        prompt = f""" {dica} {prompt}"""
-        nova_resposta = enviar_prompt_para_llm(prompt)
+        prompt = f""" {dica} {prompt} {output}"""
+        nova_resposta = enviar_prompt_para_llm(prompt+output)
         
         #print(f"Dica {i + 1}: {nova_resposta}")
         # Calcula o ROUGE Score entre a resposta anterior e a nova resposta
@@ -276,7 +286,203 @@ def progressive_hints(prompt, row, colunas, max_hints=4, limite_rouge=0.9):
     
     return resultados
 
+def hypothesis_testing_prompting(prompt, row, colunas, max_iter=12, limite_qualidade=0.9):
+    """
+    Para cada categoria CATx, testa a hipótese usando as keywords correspondentes.
+    Retorna uma lista de resultados para cada categoria testada.
+    """
+    results = []
+    incident = " / ".join(
+        [f"{coluna}: {row[coluna]}" if coluna in row and pd.notnull(row[coluna]) else f"{coluna}: [valor ausente]" for coluna in colunas]
+    )
 
+    categories = [f"CAT{i}" for i in range(1, 13)]
+    i = 0
+    results = ({
+            "informacoes_das_colunas": incident,
+            "categoria_testada": 'Unknown',
+            "categoria": 'Unknown',
+            "explicacao": 'Unknown'
+            })
+    while i < len(categories):
+        category = categories[i]
+        print(f"categoria para hipotese: {category}")
+        keywords = subcategories(category)
+        keywords_str = ', '.join(keywords)
+        prompt_llm = f"""
+        Security Incident Analysis System - HTP
+
+        Incident Description:
+        "{prompt}"
+
+        Instructions:
+        For NIST category Considered tha Category: {category} and keyword: {keywords_str} perform the following steps:
+
+        1. True Hypothesis:
+           - Assume the incident belongs to this category. Justify based on the description and keywords.
+           - Indicate whether the hypothesis is SUPPORTED or NOT SUPPORTED.
+
+        2. False Hypothesis:
+           - Assume the incident does NOT belong to this category. Justify based on the lack of evidence.
+           - Indicate whether the hypothesis is SUPPORTED or NOT SUPPORTED.
+        Return the hypotheses in the following format:
+            True Hypothesis:[SUPPORTED/NOT SUPPORTED] 
+            False Hypothesis:[SUPPORTED/NOT SUPPORTED]    
+
+        """
+        hipoteses = enviar_prompt_para_llm(prompt_llm)
+        verificar_hipoteses = f"""
+        {hipoteses}
+        Final Classification Decision:
+           - If the True Hypothesis is SUPPORTED and the False Hypothesis is NOT SUPPORTED, return:
+             Category: same {category}
+             Explanation: [Justification for the chosen same considered {category}]
+           - Otherwise, return "UNKNOWN" as the final classification.
+             Category: UNKNOWN
+             Explanation: UNKNOWN
+        """
+        response_2 = enviar_prompt_para_api(verificar_hipoteses)
+        incident_info = extrair_security_incidents(response_2)
+        result_cat = incident_info.get('Category', 'UNKNOWN')
+        result_exp = incident_info.get('Explanation', 'UNKNOWN')
+
+        print(incident_info)
+        results = ({
+            "informacoes_das_colunas": incident,
+            "categoria_testada": category,
+            "categoria": result_cat,
+            "explicacao": result_exp
+            })
+        if(calcular_rouge_score(result_cat, category) >= limite_qualidade):
+    
+            break
+        i += 1
+
+    return results
+    
+
+def subcategories(categoria):
+        """
+    Dado o valor da chave (ex: 'CAT1'), retorna a lista de palavras-chave correspondente.
+    Se não encontrar, retorna uma lista vazia.
+    """
+        palavras_chave = {
+        "CAT1": ["phishing", "brute force", "unauthorized access", "compromised password", "credential theft", "account compromise", "token", "oauth", "ssh", "suspicious login"],
+        "CAT2": ["malware", "ransomware", "trojan", "virus", "spyware", "rootkit", "infection", "malicious code"],
+        "CAT3": ["ddos", "dos", "denial of service", "flood", "syn flood", "udp flood", "botnet", "api outage", "site down"],
+        "CAT4": ["data leak", "exposed data", "leaked credentials", "sensitive information", "data exfiltration", "unauthorized disclosure"],
+        "CAT5": ["exploit", "vulnerability", "cve", "remote execution", "sql injection", "injection", "rce", "security flaw"],
+        "CAT6": ["insider", "internal abuse", "employee", "internal leak", "sabotage", "intentional action", "staff"],
+        "CAT7": ["social engineering", "phishing", "vishing", "fraud", "deception", "spoofing", "manipulation", "scam", "ceo fraud"],
+        "CAT8": ["physical access", "equipment theft", "burglary", "unauthorized entry", "broken door", "physical breach"],
+        "CAT9": ["modification", "defacement", "unauthorized change", "erased", "altered record", "tampering"],
+        "CAT10": ["misuse", "resource abuse", "crypto mining", "compromised server", "malware hosting", "unauthorized use"],
+        "CAT11": ["third party", "supplier", "partner", "vendor", "supply chain", "external breach", "saas issue"],
+        "CAT12": ["intrusion attempt", "scan", "reconnaissance", "probing", "port scan", "blocked exploit", "failed attempt"],
+        "UNKNOWN": ["unknown", "unspecified", "not categorized", "no category", "undefined", "other"]
+    }
+        return palavras_chave.get(categoria.strip().upper(), [])
+
+def progressive_rectification_prompting(prompt_inicial, row, colunas, max_iter=4, limite_qualidade=0.9):
+
+    informacoes_das_colunas = " / ".join(
+        [f"{coluna}: {row[coluna]}" if coluna in row and pd.notnull(row[coluna]) else f"{coluna}: [valor ausente]" for coluna in colunas]
+    )
+
+    
+    def build_rectification_prompt(prompt, categoria_rejectada=""):
+        return (
+            f"""
+            Incident: {prompt}
+            The answer is probably not: {categoria_rejectada}
+            Let's think step by step to reclassify.
+            {output}
+            """
+        )
+
+    def validate_response(prompt, category, subcategory):
+        print(f"Validando resposta: {category} e mascarado {subcategory}")
+        prompt_verification = f"""{prompt}
+        Incident (masked): {subcategory}
+        Hypothesis: {category}
+        Question: What is the value of X in the Incident? (If not applicable, respond 'Unknown')
+        {output}
+        """
+        return extrair_security_incidents(enviar_prompt_para_llm(prompt_verification))['Category']
+    def mascarated_prompt(prompt, subcat):
+        mascarar = f"""
+        {prompt}
+        Replace all occurrences of the word '{subcat}' with 'X' in a given text. Ensure that the substitution preserves the original context and sentence structure.
+        """
+        return enviar_prompt_para_llm(mascarar)
+    attempt = 0
+    resultados = []
+    r_0 = enviar_prompt_para_llm(prompt_inicial)
+    print(f"Resposta inicial r_0: {r_0}")
+    a_0 = extrair_security_incidents(r_0)
+    categoria_atual = a_0["Category"]
+    categoria_rejectada = ''
+    while attempt < max_iter:
+        # Gera resposta inicial
+        print(f"Categoria atual a_0: {categoria_atual}")
+        
+        print(f"Iteração {attempt + 1}:")
+       
+        subcategory = subcategories(categoria_atual)
+        for subcat in subcategory:
+            print(f"Lista de subcategorias rejeitadas: {categoria_rejectada}")
+            categoria_anterior = categoria_atual
+            incidente_mascarado = mascarated_prompt(prompt_inicial, subcat)
+            print(f"Incidente mascarado: {incidente_mascarado}")
+            categoria_atual = validate_response(incidente_mascarado, categoria_atual, subcat)
+            print(f"Categoria da validação: {categoria_atual}")
+            qualidade = calcular_rouge_score(str(categoria_anterior), str(categoria_atual))
+            if qualidade >= limite_qualidade:
+                print('Resultado final:', categoria_atual)
+                resultados.append({
+                    "informacoes_das_colunas": informacoes_das_colunas,
+                    "categoria": categoria_atual,
+                })
+                return resultados
+            else:
+                categoria_rejectada = ',' + categoria_atual
+                rectification_prompt = build_rectification_prompt(prompt_inicial, categoria_rejectada)
+                response = enviar_prompt_para_llm(rectification_prompt)
+                incident = extrair_security_incidents(response)
+                categoria_atual = incident["Category"]
+                print(f"Categoria atual retification: {categoria_atual}")
+        attempt += 1
+
+
+def self_hint_prompting(prompt, row, colunas, max_iter=4, limite_qualidade=0.9):
+    plano = f""" Let's first understand the problem and devise a plan to solve the problem. Then, let's carry out the plan and solve the problem step by step."""
+    prompt_inicial = f"""{prompt} {plano}"""
+    plano_intermediario = enviar_prompt_para_llm(prompt_inicial)
+    response = enviar_prompt_para_llm(prompt_inicial + output)
+   
+    categoria_anterior = extrair_security_incidents(response)["Category"]
+    resultados = []
+    informacoes_das_colunas = " / ".join(
+        [f"{coluna}: {row[coluna]}" if coluna in row and pd.notnull(row[coluna]) else f"{coluna}: [valor ausente]" for coluna in colunas]
+    )
+    
+    for i in range(max_iter):
+        prompt_reflexao = f"""{prompt} {plano_intermediario} The category is: {categoria_anterior} {output}"""
+        response = enviar_prompt_para_llm(prompt_reflexao)
+        incident = extrair_security_incidents(response)
+        categoria_atual = incident["Category"]
+        if (i+1 == max_iter) or calcular_rouge_score(categoria_anterior, categoria_atual) >= limite_qualidade:
+            print('Resultado final:', response)
+            resultados.append({
+                "informacoes_das_colunas": informacoes_das_colunas,
+                "categoria": categoria_atual,
+            })
+            return resultados
+        else: 
+            categoria_anterior = categoria_atual
+            prompt_inicial = f"""{prompt} {plano} The category is: {categoria_anterior}"""
+            plano_intermediario = enviar_prompt_para_llm(prompt_inicial)
+            
 def salvar_resultados_csv(resultados, nome_arquivo):
     """
     Salva os resultados em um arquivo CSV usando pandas.
@@ -378,6 +584,9 @@ def main():
     parser.add_argument('--limite_hint', type=int, default=0, help="Número máximo de dicas progressivas (padrão: 0)")
     parser.add_argument('--nist', dest='nist', action='store_true', help="Ativar categorizador conforme padrão NIST (padrão: True)")
     parser.add_argument('--no-nist', dest='nist', action='store_false', help="Desativar categorizador conforme padrão NIST")
+    parser.add_argument('--modo', type=str, choices=['php', 'prp', 'shp','htp'], default='php',
+                        help="Escolha o modo de execução: 'php' para progressive hints ou 'prp' para prompt refinement process (padrão: php)")
+    
     parser.set_defaults(nist=True)
 
     args = parser.parse_args()
@@ -443,7 +652,7 @@ def main():
             linhas_processadas += 1
             porcentagem = (linhas_processadas / total_linhas) * 100
             print(f"Progresso: {linhas_processadas}/{total_linhas} linhas processadas ({porcentagem:.2f}%)")
-
+            global output
             # Construção do prompt
             prompt = f"""
             You are a security expert.
@@ -488,31 +697,39 @@ def main():
                 Your task:
                 - Classify the incident below using the most appropriate category code (CAT1 to CAT12).
                 - Justify based on the explanation of the selected category.
-
+                """
+            if(args.nist):
+                    output = f"""
                 If classification is not possible, return:
                 Category: Unknown
                 Explanation: Unknown
-
+                
                 OUTPUT:
                 Category: [NIST code]
                 Explanation: [Justification for the chosen category]
-                ```
-                Let me know if you need any refinements!"""
+                """
             else:
-                prompt += f"""
-                ```
-                Rules for returning the Category and NIST Explanation:
-                - If no clear Category is found, return "Desconhecido."
-                - If no clear Explanation is found, return "Desconhecido."
+                output += f"""
+                Rules for returning the NIST Category and Explanation:
+                - If no clear Category is found, return "Unknown"
+                - If no clear Explanation is found, return "Unknown"
 
                 Category: [Identified Category Title]
                 Explanation: [Detailed Description of the Category]
-                
                 """
-               
-    
-            resultado_analisado = progressive_hints(prompt, row, args.colunas, max_hints=args.limite_hint, limite_rouge=args.limite_rouge)
-            resultados.extend(resultado_analisado)
+         
+            if args.modo == 'shp':
+                resultado_analisado = self_hint_prompting(prompt, row, args.colunas, max_iter=args.limite_hint, limite_qualidade=args.limite_rouge)
+                resultados.append(resultado_analisado)
+            elif args.modo == 'prp':
+                resultado_analisado = progressive_rectification_prompting(prompt, row, args.colunas, max_iter=args.limite_hint, limite_qualidade=args.limite_rouge)
+                resultados.append(resultado_analisado)
+            elif args.modo == 'htp':
+                resultado_analisado = hypothesis_testing_prompting(prompt, row, args.colunas, max_iter=args.limite_hint, limite_qualidade=args.limite_rouge)
+                resultados.append(resultado_analisado)
+            else:
+                resultado_analisado = progressive_hint_prompting(prompt, row, args.colunas, max_hints=args.limite_hint, limite_rouge=args.limite_rouge)
+                resultados.append(resultado_analisado)
 
     # Salvar os resultados no formato especificado
     nome_arquivo = f"resultados_{provider}.{args.formato}"
