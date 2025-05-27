@@ -229,7 +229,8 @@ def progressive_hint_prompting(prompt, row, colunas, max_hints=4, limite_rouge=0
     Gera dicas progressivas usando o próprio LLM com base na resposta anterior.
     Interrompe a execução se o ROUGE Score entre as respostas for maior que o limite.
     """
-    resposta = enviar_prompt_para_llm(prompt+output)
+    prompt = f""" {prompt} {output}"""
+    resposta = enviar_prompt_para_llm(prompt)
     
     resposta_anterior = resposta
     
@@ -247,9 +248,8 @@ def progressive_hint_prompting(prompt, row, colunas, max_hints=4, limite_rouge=0
         resultados.append({
             
             "informacoes_das_colunas": informacoes_das_colunas,
-            **extrair_security_incidents(nova_resposta),
-            "rouge": rouge_score,
-            "hints": 0
+            "categoria": extrair_security_incidents(nova_resposta)["Category"],
+            "rouge": rouge_score
         })
         print(extrair_security_incidents(nova_resposta)['Category'])
         return resultados
@@ -257,14 +257,12 @@ def progressive_hint_prompting(prompt, row, colunas, max_hints=4, limite_rouge=0
     for i in range(max_hints):
         # Gera uma dica com base na resposta anterior
         dica = gerar_dica(extrair_security_incidents(resposta_anterior)["Category"])
-        prompt = f""" {dica} {prompt} {output}"""
-        nova_resposta = enviar_prompt_para_llm(prompt+output)
+        prompt = f""" {dica} {prompt}"""
+        nova_resposta = enviar_prompt_para_llm(prompt)
         
         #print(f"Dica {i + 1}: {nova_resposta}")
         # Calcula o ROUGE Score entre a resposta anterior e a nova resposta
         rouge_score = calcular_rouge_score(extrair_security_incidents(resposta_anterior)["Category"],extrair_security_incidents(nova_resposta)["Category"])
-        
-       
 
         # Interrompe se atingir o limite de ROUGE ou o número máximo de dicas
         
@@ -274,7 +272,7 @@ def progressive_hint_prompting(prompt, row, colunas, max_hints=4, limite_rouge=0
              # Salva os resultados na lista
             resultados.append({
                 "informacoes_das_colunas": informacoes_das_colunas,
-                **extrair_security_incidents(nova_resposta),
+                "categoria": extrair_security_incidents(nova_resposta)["Category"],
                 "rouge": rouge_score
             })
             print(extrair_security_incidents(nova_resposta)['Category'])
@@ -720,19 +718,19 @@ def main():
          
             if args.modo == 'shp':
                 resultado_analisado = self_hint_prompting(prompt, row, args.colunas, max_iter=args.limite_hint, limite_qualidade=args.limite_rouge)
-                resultados.append(resultado_analisado)
+                resultados.extend(resultado_analisado)
             elif args.modo == 'prp':
                 resultado_analisado = progressive_rectification_prompting(prompt, row, args.colunas, max_iter=args.limite_hint, limite_qualidade=args.limite_rouge)
-                resultados.append(resultado_analisado)
+                resultados.extend(resultado_analisado)
             elif args.modo == 'htp':
                 resultado_analisado = hypothesis_testing_prompting(prompt, row, args.colunas, max_iter=args.limite_hint, limite_qualidade=args.limite_rouge)
-                resultados.append(resultado_analisado)
+                resultados.extend(resultado_analisado)
             else:
                 resultado_analisado = progressive_hint_prompting(prompt, row, args.colunas, max_hints=args.limite_hint, limite_rouge=args.limite_rouge)
-                resultados.append(resultado_analisado)
+                resultados.extend(resultado_analisado)
 
     # Salvar os resultados no formato especificado
-    nome_arquivo = f"resultados_{provider}.{args.formato}"
+    nome_arquivo = f"resultados_{provider}_{args.modo}.{args.formato}"
     if args.formato == 'csv':
         salvar_resultados_csv(resultados, nome_arquivo)
     elif args.formato == 'json':
