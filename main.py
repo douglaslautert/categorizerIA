@@ -47,8 +47,13 @@ def salvar_log(modelo, modo_prompt, input_tokens, output_tokens, prompt, respost
     }
 
     if caminho.exists():
-        with open(caminho, "r", encoding="utf-8") as f:
-            dados = json.load(f)
+        try:
+            with open(caminho, "r", encoding="utf-8") as f:
+                dados = json.load(f)
+        except Exception:
+            # Se o arquivo estiver corrompido, sobrescreve com uma nova lista
+            print(f"Aviso: arquivo de log corrompido, será recriado: {caminho}")
+            dados = []
     else:
         dados = []
 
