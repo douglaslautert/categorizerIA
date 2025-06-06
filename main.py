@@ -11,6 +11,10 @@ import re
 import json
 import psutil  # Biblioteca para monitorar o uso de memória
 import time
+from datetime import datetime
+from pathlib import Path
+import tiktoken
+
 # Variáveis globais
 api_key = None  # Será definida pelo arquivo de configuração
 modelo = None  # Modelo a ser usado
@@ -19,6 +23,62 @@ use_local_llm = False  # Define se usará LLM local ou API
 local_model = None  # Modelo local da Hugging Face
 usar_prompt_local = False  # Define se o prompt será processado localmente
 config_model = None  # Configuração carregada do arquivo JSON
+
+
+def contar_tokens_tiktoken(texto, modelo_nome):
+    try:
+        encoding = tiktoken.encoding_for_model(modelo_nome)
+    except KeyError:
+        encoding = tiktoken.get_encoding("cl100k_base")  # fallback padrão
+    return len(encoding.encode(texto))
+
+def salvar_log(modelo, modo_prompt, input_tokens, output_tokens, prompt, resposta):
+    data_str = datetime.now().strftime("%Y-%m-%d")
+    nome_arquivo = f"{data_str}_{modelo.replace('/', '-')}_{modo_prompt}.json"
+    caminho = Path("logs") / nome_arquivo
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+
+    entrada = {
+        "timestamp": datetime.now().isoformat(),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "prompt": prompt,
+        "resposta": resposta
+    }
+
+    if caminho.exists():
+        with open(caminho, "r", encoding="utf-8") as f:
+            dados = json.load(f)
+    else:
+        dados = []
+
+    dados.append(entrada)
+
+    with open(caminho, "w", encoding="utf-8") as f:
+        json.dump(dados, f, ensure_ascii=False, indent=2)
+
+def enviar_prompt_para_llm(prompt):
+    """
+    Envia o prompt para a API ou modelo local, calcula tokens com tiktoken
+    e salva estatísticas num JSON baseado em data, modelo e modo_prompt.
+    """
+    import os
+    global modelo, use_local_llm
+    time.sleep(1.5)
+
+    modo_prompt = os.getenv("MODO_PROMPT", "default")
+
+    if use_local_llm:
+        resposta = enviar_prompt_para_local(prompt)
+    else:
+        resposta = enviar_prompt_para_api(prompt)
+
+    input_tokens = contar_tokens_tiktoken(prompt, modelo)
+    output_tokens = contar_tokens_tiktoken(resposta, modelo)
+
+    salvar_log(modelo, modo_prompt, input_tokens, output_tokens, prompt, resposta)
+    return resposta
+
 def carregar_configuracao():
     """
     Carrega as configurações de um arquivo JSON chamado 'config.json' no diretório atual.
@@ -130,17 +190,6 @@ def enviar_prompt_para_local(prompt):
         return response
     except Exception as e:
         return f"Erro ao processar o prompt localmente: {e}"
-    
-def enviar_prompt_para_llm(prompt):
-    """
-    Decide se envia o prompt para a API ou para o LLM local,
-    com base na variável global `use_local_llm`.
-    """
-    time.sleep(1.5)  # Adiciona um pequeno atraso para evitar sobrecarga de requisições
-    if use_local_llm:
-        return enviar_prompt_para_local(prompt)
-    else:
-        return enviar_prompt_para_api(prompt)
 
 def calcular_rouge_score(resposta_anterior, nova_resposta):
     """
