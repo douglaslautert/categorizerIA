@@ -11,10 +11,6 @@ import re
 import json
 import psutil  # Biblioteca para monitorar o uso de memória
 import time
-from datetime import datetime
-from pathlib import Path
-import tiktoken
-
 # Variáveis globais
 api_key = None  # Será definida pelo arquivo de configuração
 modelo = None  # Modelo a ser usado
@@ -23,7 +19,13 @@ use_local_llm = False  # Define se usará LLM local ou API
 local_model = None  # Modelo local da Hugging Face
 usar_prompt_local = False  # Define se o prompt será processado localmente
 config_model = None  # Configuração carregada do arquivo JSON
-
+import tqdm
+import time
+import json
+import os
+from datetime import datetime
+from pathlib import Path
+import tiktoken
 
 def contar_tokens_tiktoken(texto, modelo_nome):
     try:
@@ -305,7 +307,7 @@ def progressive_hint_prompting(prompt, row, colunas, max_hints=4, limite_rouge=0
             "categoria": extrair_security_incidents(nova_resposta)["Category"],
             "rouge": rouge_score
         })
-        print(extrair_security_incidents(nova_resposta)['Category'])
+        #print(extrair_security_incidents(nova_resposta)['Category'])
         return resultados
 
     for i in range(max_hints):
@@ -329,7 +331,7 @@ def progressive_hint_prompting(prompt, row, colunas, max_hints=4, limite_rouge=0
                 "categoria": extrair_security_incidents(nova_resposta)["Category"],
                 "rouge": rouge_score
             })
-            print(extrair_security_incidents(nova_resposta)['Category'])
+            #print(extrair_security_incidents(nova_resposta)['Category'])
             break
         
 
@@ -358,7 +360,7 @@ def hypothesis_testing_prompting(prompt, row, colunas, max_iter=12, limite_quali
             })
     while i < len(categories):
         category = categories[i]
-        print(f"categoria para hipotese: {category}")
+        #print(f"categoria para hipotese: {category}")
         keywords = subcategories(category)
         keywords_str = ', '.join(keywords)
         prompt_llm = f"""
@@ -398,7 +400,7 @@ def hypothesis_testing_prompting(prompt, row, colunas, max_iter=12, limite_quali
         result_cat = incident_info.get('Category', 'UNKNOWN')
         result_exp = incident_info.get('Explanation', 'UNKNOWN')
 
-        print(incident_info)
+        #print(incident_info)
         results = ({
             "informacoes_das_colunas": incident,
             "categoria_testada": category,
@@ -453,7 +455,7 @@ def progressive_rectification_prompting(prompt_inicial, row, colunas, max_iter=4
         )
 
     def validate_response(prompt, category, subcategory):
-        print(f"Validando resposta: {category} e mascarado {subcategory}")
+        #print(f"Validando resposta: {category} e mascarado {subcategory}")
         prompt_verification = f"""{prompt}
         Incident (masked): {subcategory}
         Hypothesis: {category}
@@ -470,27 +472,27 @@ def progressive_rectification_prompting(prompt_inicial, row, colunas, max_iter=4
     attempt = 0
     resultados = []
     r_0 = enviar_prompt_para_llm(prompt_inicial)
-    print(f"Resposta inicial r_0: {r_0}")
+    #print(f"Resposta inicial r_0: {r_0}")
     a_0 = extrair_security_incidents(r_0)
     categoria_atual = a_0["Category"]
     categoria_rejectada = ''
     while attempt < max_iter:
         # Gera resposta inicial
-        print(f"Categoria atual a_0: {categoria_atual}")
+        #print(f"Categoria atual a_0: {categoria_atual}")
         
-        print(f"Iteração {attempt + 1}:")
+        #print(f"Iteração {attempt + 1}:")
        
         subcategory = subcategories(categoria_atual)
         for subcat in subcategory:
-            print(f"Lista de subcategorias rejeitadas: {categoria_rejectada}")
+            #print(f"Lista de subcategorias rejeitadas: {categoria_rejectada}")
             categoria_anterior = categoria_atual
             incidente_mascarado = mascarated_prompt(prompt_inicial, subcat)
-            print(f"Incidente mascarado: {incidente_mascarado}")
+            #print(f"Incidente mascarado: {incidente_mascarado}")
             categoria_atual = validate_response(incidente_mascarado, categoria_atual, subcat)
-            print(f"Categoria da validação: {categoria_atual}")
+            #print(f"Categoria da validação: {categoria_atual}")
             qualidade = calcular_rouge_score(str(categoria_anterior), str(categoria_atual))
             if qualidade >= limite_qualidade:
-                print('Resultado final:', categoria_atual)
+                #print('Resultado final:', categoria_atual)
                 resultados.append({
                     "informacoes_das_colunas": informacoes_das_colunas,
                     "categoria": categoria_atual,
@@ -502,7 +504,7 @@ def progressive_rectification_prompting(prompt_inicial, row, colunas, max_iter=4
                 response = enviar_prompt_para_llm(rectification_prompt)
                 incident = extrair_security_incidents(response)
                 categoria_atual = incident["Category"]
-                print(f"Categoria atual retification: {categoria_atual}")
+                #print(f"Categoria atual retification: {categoria_atual}")
         attempt += 1
 
 
@@ -524,7 +526,7 @@ def self_hint_prompting(prompt, row, colunas, max_iter=4, limite_qualidade=0.9):
         incident = extrair_security_incidents(response)
         categoria_atual = incident["Category"]
         if (i+1 == max_iter) or calcular_rouge_score(categoria_anterior, categoria_atual) >= limite_qualidade:
-            print('Resultado final:', response)
+            #print('Resultado final:', response)
             resultados.append({
                 "informacoes_das_colunas": informacoes_das_colunas,
                 "categoria": categoria_atual,
@@ -698,92 +700,92 @@ def main():
     resultados = []
     total_linhas = sum(len(df) for df in dataframes)  # Calcula o total de linhas em todos os DataFrames
     linhas_processadas = 0  # Contador de linhas processadas
-    for df in dataframes:
-        for index, row in df.iterrows():
-            # Atualiza o contador de linhas processadas
-            linhas_processadas += 1
-            porcentagem = (linhas_processadas / total_linhas) * 100
-            print(f"Progresso: {linhas_processadas}/{total_linhas} linhas processadas ({porcentagem:.2f}%)")
-            global output
-            # Construção do prompt
-            prompt = f"""
-            You are a security expert.
-            Categorize the following incident description into a Category and an Explanation. 
+    with tqdm.tqdm(total=total_linhas, desc="Processando linhas") as pbar:
+        for df in dataframes:
+            for index, row in df.iterrows():
+                # Atualiza o contador de linhas processadas
+                linhas_processadas += 1
+                #porcentagem = (linhas_processadas / total_linhas) * 100
+                #print(f"Progresso: {linhas_processadas}/{total_linhas} linhas processadas ({porcentagem:.2f}%)")
+                global output
+                # Construção do prompt
+                prompt = f"""
+                You are a security expert.
+                Categorize the following incident description into a Category and an Explanation. 
 
-            Description:
-                ```
-            """
-            for coluna in args.colunas:
-                # Verifica se a coluna existe na linha e se o valor não é nulo
-                if coluna in df.columns and pd.notnull(row[coluna]):
-                    prompt += f" [{coluna}]: [{row[coluna]}]"
-
-            if args.nist:
-                prompt += f"""
-                                NIST Categories Available for Classification:
-                - CAT1: Account Compromise – unauthorized access to user or administrator accounts.
-                    Examples: credential phishing, SSH brute force, OAuth token theft.
-                - CAT2: Malware – infection by malicious code.
-                    Examples: ransomware, Trojan horse, macro virus.
-                - CAT3: Denial of Service Attack – making systems unavailable.
-                    Examples: volumetric DoS or DDoS (UDP flood, SYN flood, HTTP, HTTPS), attack on publicly available APIs or websites, botnet Mirai attacking an institution's server.
-                - CAT4: Data Leak – unauthorized disclosure of sensitive data.
-                    Examples: database theft, leaked credentials.
-                - CAT5: Vulnerability Exploitation – using technical flaws for attacks.
-                    Examples: exploitation of critical CVE, remote code execution (RCE), SQL injection in web applications. Includes known vulnerabilities or insecure patterns that allow remote exploitation without authentication, traffic amplification, or information leaks, such as NTP servers with monlist/readvar commands enabled, DNS responding to ANY queries, or Memcached servers open to the internet.
-                - CAT6: Insider Abuse – malicious actions by internal users.
-                    Examples: copying confidential data, sabotage.
-                - CAT7: Social Engineering – deception to gain access or data.
-                    Examples: phishing, vishing, CEO fraud.
-                - CAT8: Physical Incident – impact due to unauthorized physical access.
-                    Examples: laptop theft, data center break-in.
-                - CAT9: Unauthorized Modification – improper changes to systems or data.
-                    Examples: defacement, record manipulation.
-                - CAT10: Misuse of Resources – unauthorized use for other purposes.
-                    Examples: cryptocurrency mining, malware distribution.
-                - CAT11: Third-Party Issues – security failures by suppliers.
-                    Examples: SaaS breach, supply chain attack.
-                - CAT12: Intrusion Attempt – unconfirmed attacks.
-                    Examples: network scans, brute force, blocked exploits.
-
-                Your task:
-                - Classify the incident below using the most appropriate category code (CAT1 to CAT12).
-                - Justify based on the explanation of the selected category.
+                Description:
+                    ```
                 """
-            if(args.nist):
-                    output = f"""
-                If classification is not possible, return:
-                Category: Unknown
-                Explanation: Unknown
-                
-                OUTPUT:
-                Category: [NIST code]
-                Explanation: [Justification for the chosen category]
-                """
-            else:
-                output += f"""
-                Rules for returning the NIST Category and Explanation:
-                - If no clear Category is found, return "Unknown"
-                - If no clear Explanation is found, return "Unknown"
+                for coluna in args.colunas:
+                    # Verifica se a coluna existe na linha e se o valor não é nulo
+                    if coluna in df.columns and pd.notnull(row[coluna]):
+                        prompt += f" [{coluna}]: [{row[coluna]}]"
 
-                Category: [Identified Category Title]
-                Explanation: [Detailed Description of the Category]
-                """
-         
-            if args.modo == 'shp':
-                resultado_analisado = self_hint_prompting(prompt, row, args.colunas, max_iter=args.limite_hint, limite_qualidade=args.limite_rouge)
-                resultados.extend(resultado_analisado)
-            elif args.modo == 'prp':
-                resultado_analisado = progressive_rectification_prompting(prompt, row, args.colunas, max_iter=args.limite_hint, limite_qualidade=args.limite_rouge)
-                resultados.extend(resultado_analisado)
-            elif args.modo == 'htp':
-                resultado_analisado = hypothesis_testing_prompting(prompt, row, args.colunas, max_iter=args.limite_hint, limite_qualidade=args.limite_rouge)
-                resultados.extend(resultado_analisado)
-            else:
-                resultado_analisado = progressive_hint_prompting(prompt, row, args.colunas, max_hints=args.limite_hint, limite_rouge=args.limite_rouge)
-                resultados.extend(resultado_analisado)
+                if args.nist:
+                    prompt += f"""
+                                    NIST Categories Available for Classification:
+                    - CAT1: Account Compromise – unauthorized access to user or administrator accounts.
+                        Examples: credential phishing, SSH brute force, OAuth token theft.
+                    - CAT2: Malware – infection by malicious code.
+                        Examples: ransomware, Trojan horse, macro virus.
+                    - CAT3: Denial of Service Attack – making systems unavailable.
+                        Examples: volumetric DoS or DDoS (UDP flood, SYN flood, HTTP, HTTPS), attack on publicly available APIs or websites, botnet Mirai attacking an institution's server.
+                    - CAT4: Data Leak – unauthorized disclosure of sensitive data.
+                        Examples: database theft, leaked credentials.
+                    - CAT5: Vulnerability Exploitation – using technical flaws for attacks.
+                        Examples: exploitation of critical CVE, remote code execution (RCE), SQL injection in web applications. Includes known vulnerabilities or insecure patterns that allow remote exploitation without authentication, traffic amplification, or information leaks, such as NTP servers with monlist/readvar commands enabled, DNS responding to ANY queries, or Memcached servers open to the internet.
+                    - CAT6: Insider Abuse – malicious actions by internal users.
+                        Examples: copying confidential data, sabotage.
+                    - CAT7: Social Engineering – deception to gain access or data.
+                        Examples: phishing, vishing, CEO fraud.
+                    - CAT8: Physical Incident – impact due to unauthorized physical access.
+                        Examples: laptop theft, data center break-in.
+                    - CAT9: Unauthorized Modification – improper changes to systems or data.
+                        Examples: defacement, record manipulation.
+                    - CAT10: Misuse of Resources – unauthorized use for other purposes.
+                        Examples: cryptocurrency mining, malware distribution.
+                    - CAT11: Third-Party Issues – security failures by suppliers.
+                        Examples: SaaS breach, supply chain attack.
+                    - CAT12: Intrusion Attempt – unconfirmed attacks.
+                        Examples: network scans, brute force, blocked exploits.
 
-    # Salvar os resultados no formato especificado
+                    Your task:
+                    - Classify the incident below using the most appropriate category code (CAT1 to CAT12).
+                    - Justify based on the explanation of the selected category.
+                    """
+                if(args.nist):
+                        output = f"""
+                    If classification is not possible, return:
+                    Category: Unknown
+                    Explanation: Unknown
+                    
+                    OUTPUT:
+                    Category: [NIST code]
+                    Explanation: [Justification for the chosen category]
+                    """
+                else:
+                    output += f"""
+                    Rules for returning the NIST Category and Explanation:
+                    - If no clear Category is found, return "Unknown"
+                    - If no clear Explanation is found, return "Unknown"
+
+                    Category: [Identified Category Title]
+                    Explanation: [Detailed Description of the Category]
+                    """
+            
+                if args.modo == 'shp':
+                    resultado_analisado = self_hint_prompting(prompt, row, args.colunas, max_iter=args.limite_hint, limite_qualidade=args.limite_rouge)
+                    resultados.extend(resultado_analisado)
+                elif args.modo == 'prp':
+                    resultado_analisado = progressive_rectification_prompting(prompt, row, args.colunas, max_iter=args.limite_hint, limite_qualidade=args.limite_rouge)
+                    resultados.extend(resultado_analisado)
+                elif args.modo == 'htp':
+                    resultado_analisado = hypothesis_testing_prompting(prompt, row, args.colunas, max_iter=args.limite_hint, limite_qualidade=args.limite_rouge)
+                    resultados.extend(resultado_analisado)
+                else:
+                    resultado_analisado = progressive_hint_prompting(prompt, row, args.colunas, max_hints=args.limite_hint, limite_rouge=args.limite_rouge)
+                    resultados.extend(resultado_analisado)
+                pbar.update(1)
     nome_arquivo = f"resultados_{provider}_{args.modo}.{args.formato}"
     if args.formato == 'csv':
         salvar_resultados_csv(resultados, nome_arquivo)
