@@ -23,46 +23,10 @@ import tqdm
 import time
 import json
 import os
-from datetime import datetime
-from pathlib import Path
-import tiktoken
 
-def contar_tokens_tiktoken(texto, modelo_nome):
-    try:
-        encoding = tiktoken.encoding_for_model(modelo_nome)
-    except KeyError:
-        encoding = tiktoken.get_encoding("cl100k_base")  # fallback padrão
-    return len(encoding.encode(texto))
-
-def salvar_log(modelo, modo_prompt, input_tokens, output_tokens, prompt, resposta):
-    data_str = datetime.now().strftime("%Y-%m-%d")
-    nome_arquivo = f"{data_str}_{modelo.replace('/', '-')}_{modo_prompt}.json"
-    caminho = Path("logs") / nome_arquivo
-    caminho.parent.mkdir(parents=True, exist_ok=True)
-
-    entrada = {
-        "timestamp": datetime.now().isoformat(),
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "prompt": prompt,
-        "resposta": resposta
-    }
-
-    if caminho.exists():
-        try:
-            with open(caminho, "r", encoding="utf-8") as f:
-                dados = json.load(f)
-        except Exception:
-            # Se o arquivo estiver corrompido, sobrescreve com uma nova lista
-            print(f"Aviso: arquivo de log corrompido, será recriado: {caminho}")
-            dados = []
-    else:
-        dados = []
-
-    dados.append(entrada)
-
-    with open(caminho, "w", encoding="utf-8") as f:
-        json.dump(dados, f, ensure_ascii=False, indent=2)
+from utils.configs import(
+    carregar_configuracao,
+    carregar_todos_csv)
 
 def enviar_prompt_para_llm(prompt):
     """
@@ -86,50 +50,6 @@ def enviar_prompt_para_llm(prompt):
     salvar_log(modelo, modo_prompt, input_tokens, output_tokens, prompt, resposta)
     return resposta
 
-def carregar_configuracao():
-    """
-    Carrega as configurações de um arquivo JSON chamado 'config.json' no diretório atual.
-    """
-    caminho_config = "config.json"
-    if not os.path.exists(caminho_config):
-        print(f"Erro: Arquivo de configuração '{caminho_config}' não encontrado no diretório atual.")
-        return None
-    try:
-        with open(caminho_config, 'r') as f:
-            return json.load(f)  # O arquivo será fechado automaticamente após a leitura
-    except Exception as e:
-        print(f"Erro ao carregar o arquivo de configuração: {e}")
-        return None
-
-def carregar_todos_csv(diretorio):
-    """
-    Carrega todos os arquivos CSV, XLS ou XLSX de um diretório e retorna uma lista de DataFrames.
-    """
-    if not os.path.exists(diretorio):
-        raise FileNotFoundError(f"O diretório '{diretorio}' não foi encontrado.")
-
-    dataframes = []
-    arquivos_suportados = [
-        arquivo for arquivo in os.listdir(diretorio)
-        if arquivo.endswith(('.csv', '.xls', '.xlsx')) and not arquivo.startswith('~$')
-    ]
-
-    if not arquivos_suportados:
-        print(f"Nenhum arquivo CSV, XLS ou XLSX encontrado no diretório '{diretorio}'.")
-        return dataframes
-
-    for arquivo in arquivos_suportados:
-        caminho_arquivo = os.path.join(diretorio, arquivo)
-        try:
-            if arquivo.endswith('.csv'):
-                df = pd.read_csv(caminho_arquivo)
-            elif arquivo.endswith(('.xls', '.xlsx')):
-                df = pd.read_excel(caminho_arquivo, engine='openpyxl')  # Especifica o engine para arquivos Excel
-            dataframes.append(df)
-            print(f"Arquivo carregado com sucesso: {arquivo}")
-        except Exception as e:
-            print(f"Erro ao carregar o arquivo {arquivo}: {e}")
-    return dataframes
 
 def enviar_prompt_para_api(prompt):
     """
