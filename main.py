@@ -11,6 +11,8 @@ import re
 import json
 import psutil  # Biblioteca para monitorar o uso de memória
 import time
+
+from utils.lms_prp_utils import enviar_prompt_para_lm
 # Variáveis globais
 api_key = None  # Será definida pelo arquivo de configuração
 modelo = None  # Modelo a ser usado
@@ -23,46 +25,11 @@ import tqdm
 import time
 import json
 import os
-from datetime import datetime
-from pathlib import Path
-import tiktoken
+from typing import Callable, List, Dict, Any, Optional
 
-def contar_tokens_tiktoken(texto, modelo_nome):
-    try:
-        encoding = tiktoken.encoding_for_model(modelo_nome)
-    except KeyError:
-        encoding = tiktoken.get_encoding("cl100k_base")  # fallback padrão
-    return len(encoding.encode(texto))
-
-def salvar_log(modelo, modo_prompt, input_tokens, output_tokens, prompt, resposta):
-    data_str = datetime.now().strftime("%Y-%m-%d")
-    nome_arquivo = f"{data_str}_{modelo.replace('/', '-')}_{modo_prompt}.json"
-    caminho = Path("logs") / nome_arquivo
-    caminho.parent.mkdir(parents=True, exist_ok=True)
-
-    entrada = {
-        "timestamp": datetime.now().isoformat(),
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "prompt": prompt,
-        "resposta": resposta
-    }
-
-    if caminho.exists():
-        try:
-            with open(caminho, "r", encoding="utf-8") as f:
-                dados = json.load(f)
-        except Exception:
-            # Se o arquivo estiver corrompido, sobrescreve com uma nova lista
-            print(f"Aviso: arquivo de log corrompido, será recriado: {caminho}")
-            dados = []
-    else:
-        dados = []
-
-    dados.append(entrada)
-
-    with open(caminho, "w", encoding="utf-8") as f:
-        json.dump(dados, f, ensure_ascii=False, indent=2)
+from utils.configs import(
+    carregar_configuracao,
+    carregar_todos_csv)
 
 def enviar_prompt_para_llm(prompt):
     """
@@ -86,50 +53,6 @@ def enviar_prompt_para_llm(prompt):
     salvar_log(modelo, modo_prompt, input_tokens, output_tokens, prompt, resposta)
     return resposta
 
-def carregar_configuracao():
-    """
-    Carrega as configurações de um arquivo JSON chamado 'config.json' no diretório atual.
-    """
-    caminho_config = "config.json"
-    if not os.path.exists(caminho_config):
-        print(f"Erro: Arquivo de configuração '{caminho_config}' não encontrado no diretório atual.")
-        return None
-    try:
-        with open(caminho_config, 'r') as f:
-            return json.load(f)  # O arquivo será fechado automaticamente após a leitura
-    except Exception as e:
-        print(f"Erro ao carregar o arquivo de configuração: {e}")
-        return None
-
-def carregar_todos_csv(diretorio):
-    """
-    Carrega todos os arquivos CSV, XLS ou XLSX de um diretório e retorna uma lista de DataFrames.
-    """
-    if not os.path.exists(diretorio):
-        raise FileNotFoundError(f"O diretório '{diretorio}' não foi encontrado.")
-
-    dataframes = []
-    arquivos_suportados = [
-        arquivo for arquivo in os.listdir(diretorio)
-        if arquivo.endswith(('.csv', '.xls', '.xlsx')) and not arquivo.startswith('~$')
-    ]
-
-    if not arquivos_suportados:
-        print(f"Nenhum arquivo CSV, XLS ou XLSX encontrado no diretório '{diretorio}'.")
-        return dataframes
-
-    for arquivo in arquivos_suportados:
-        caminho_arquivo = os.path.join(diretorio, arquivo)
-        try:
-            if arquivo.endswith('.csv'):
-                df = pd.read_csv(caminho_arquivo)
-            elif arquivo.endswith(('.xls', '.xlsx')):
-                df = pd.read_excel(caminho_arquivo, engine='openpyxl')  # Especifica o engine para arquivos Excel
-            dataframes.append(df)
-            print(f"Arquivo carregado com sucesso: {arquivo}")
-        except Exception as e:
-            print(f"Erro ao carregar o arquivo {arquivo}: {e}")
-    return dataframes
 
 def enviar_prompt_para_api(prompt):
     """
@@ -437,75 +360,111 @@ def subcategories(categoria):
     }
         return palavras_chave.get(categoria.strip().upper(), [])
 
-def progressive_rectification_prompting(prompt_inicial, row, colunas, max_iter=4, limite_qualidade=0.9):
+def progressive_rectification_prompting(
+    texto_incidente: str,
+    max_iter: int = 4,
+    limite_qualidade: float = 0.9
+    ) -> Dict[str, Any]:
 
-    informacoes_das_colunas = " / ".join(
-        [f"{coluna}: {row[coluna]}" if coluna in row and pd.notnull(row[coluna]) else f"{coluna}: [valor ausente]" for coluna in colunas]
-    )
-
-    
-    def build_rectification_prompt(prompt, categoria_rejectada=""):
+    def _construir_prompt_retificacao(prompt: str, categorias_rejeitadas_str: str) -> str:
+        # Constrói o prompt para a etapa de retificação, informando ao LM quais categorias evitar.
         return (
-            f"""
-            Incident: {prompt}
-            The answer is probably not: {categoria_rejectada}
-            Let's think step by step to reclassify.
-            {output}
-            """
+            f"Analise o seguinte incidente e classifique-o. "
+            f"A resposta provavelmente não é: {categorias_rejeitadas_str}.\n\n"
+            f"Incidente: \"{prompt}\"\n\n"
+            f"Pense passo a passo para reclassificar o incidente e retorne um JSON com a 'Category' e 'Justification'."
         )
 
-    def validate_response(prompt, category, subcategory):
-        #print(f"Validando resposta: {category} e mascarado {subcategory}")
-        prompt_verification = f"""{prompt}
-        Incident (masked): {subcategory}
-        Hypothesis: {category}
-        Question: What is the value of X in the Incident? (If not applicable, respond 'Unknown')
-        {output}
-        """
-        return extrair_security_incidents(enviar_prompt_para_llm(prompt_verification))['Category']
-    def mascarated_prompt(prompt, subcat):
-        mascarar = f"""
-        {prompt}
-        Replace all occurrences of the word '{subcat}' with 'X' in a given text. Ensure that the substitution preserves the original context and sentence structure.
-        """
-        return enviar_prompt_para_llm(mascarar)
-    attempt = 0
-    resultados = []
-    r_0 = enviar_prompt_para_llm(prompt_inicial)
-    #print(f"Resposta inicial r_0: {r_0}")
-    a_0 = extrair_security_incidents(r_0)
-    categoria_atual = a_0["Category"]
-    categoria_rejectada = ''
-    while attempt < max_iter:
-        # Gera resposta inicial
-        #print(f"Categoria atual a_0: {categoria_atual}")
+    def _construir_prompt_validacao(prompt_mascarado: str, categoria_hipotese: str) -> str:
+        # Constrói o prompt que valida uma hipótese, mascarando uma subcategoria.
+        return (
+            f"Considere o seguinte incidente com uma palavra mascarada como 'X'.\n"
+            f"Incidente: \"{prompt_mascarado}\"\n\n"
+            f"Hipótese: A categoria original deste incidente é '{categoria_hipotese}'.\n\n"
+            f"Pergunta: Com base na hipótese, o que a palavra 'X' provavelmente significa? "
+            f"Analise o contexto e apenas re-classifique o incidente com base no texto mascarado. "
+            f"Retorne um JSON com a 'Category'."
+        )
+
+    def _mascarar_prompt(prompt: str, subcategoria: str) -> str:
+        # Substitui a primeira ocorrência de uma subcategoria por 'X'.
+        return prompt.replace(subcategoria, "X", 1)
+
+    # --- Lógica Principal ---
+
+    # 1. Geração da Classificação Inicial
+    prompt_inicial = (
+        f"Analise e classifique o seguinte incidente de segurança. "
+        f"Retorne um JSON com a 'Category' e 'Justification'.\n\n"
+        f"Incidente: \"{texto_incidente}\""
+    )
+    resposta_inicial_str = enviar_prompt_para_lm(prompt_inicial)
+    incidente_atual = extrair_security_incidents(resposta_inicial_str)
+    
+    categoria_atual = incidente_atual.get("Category", "Unknown")
+    categorias_rejeitadas = []
+    tentativa = 0
+
+    print(f"Classificação Inicial: {categoria_atual}")
+
+    # 2. Processo Iterativo de Verificação e Retificação
+    while tentativa < max_iter:
+        print(f"\n--- INICIANDO ITERAÇÃO DE VALIDAÇÃO {tentativa + 1} ---")
+
+        # --- Módulo de Verificação ---
+        subs_para_validacao = subcategories(categoria_atual)
+        if not subs_para_validacao:
+            print(f"AVISO: Nenhuma subcategoria encontrada para '{categoria_atual}'. Finalizando processo.")
+            break
+
+        # Tenta validar a categoria atual usando suas próprias subcategorias
+        validacao_falhou = False
+        for subcat in subs_para_validacao:
+            print(f"Testando com subcategoria: '{subcat}'")
+            
+            incidente_mascarado = _mascarar_prompt(texto_incidente, subcat)
+            prompt_validacao = _construir_prompt_validacao(incidente_mascarado, categoria_atual)
+            
+            resposta_validacao_str = enviar_prompt_para_llm(prompt_validacao)
+            resultado_validacao = extrair_security_incidents(resposta_validacao_str)
+            categoria_validada = resultado_validacao.get("Category", "Unknown")
+
+            qualidade = calcular_rouge_score(categoria_atual, categoria_validada)
+            print(f"Hipótese: '{categoria_atual}', Resultado da Validação: '{categoria_validada}', Qualidade: {qualidade:.2f}")
+
+            if qualidade < limite_qualidade:
+                # Se qualquer validação falhar, a categoria atual é considerada instável.
+                print(">>> VALIDAÇÃO FALHOU. A categoria atual é provavelmente incorreta.")
+                validacao_falhou = True
+                if categoria_atual not in categorias_rejeitadas:
+                    categorias_rejeitadas.append(categoria_atual)
+                
+                # A categoria retornada pela validação pode ser a nova candidata
+                categoria_atual = categoria_validada
+                break # Sai do loop de subcategorias para iniciar a retificação
+
+        if not validacao_falhou:
+            print("\n>>> SUCESSO NA VALIDAÇÃO. A categoria foi confirmada em todos os testes.")
+            incidente_atual["Category"] = categoria_atual
+            incidente_atual["Confidence"] = "High"
+            return incidente_atual
+
+        # --- Módulo de Retificação (se a validação falhou) ---
+        print("Iniciando Módulo de Retificação...")
+        rejeitadas_str = ", ".join(categorias_rejeitadas)
+        prompt_retificacao = _construir_prompt_retificacao(texto_incidente, rejeitadas_str)
         
-        #print(f"Iteração {attempt + 1}:")
-       
-        subcategory = subcategories(categoria_atual)
-        for subcat in subcategory:
-            #print(f"Lista de subcategorias rejeitadas: {categoria_rejectada}")
-            categoria_anterior = categoria_atual
-            incidente_mascarado = mascarated_prompt(prompt_inicial, subcat)
-            #print(f"Incidente mascarado: {incidente_mascarado}")
-            categoria_atual = validate_response(incidente_mascarado, categoria_atual, subcat)
-            #print(f"Categoria da validação: {categoria_atual}")
-            qualidade = calcular_rouge_score(str(categoria_anterior), str(categoria_atual))
-            if qualidade >= limite_qualidade:
-                #print('Resultado final:', categoria_atual)
-                resultados.append({
-                    "informacoes_das_colunas": informacoes_das_colunas,
-                    "categoria": categoria_atual,
-                })
-                return resultados
-            else:
-                categoria_rejectada = ',' + categoria_atual
-                rectification_prompt = build_rectification_prompt(prompt_inicial, categoria_rejectada)
-                response = enviar_prompt_para_llm(rectification_prompt)
-                incident = extrair_security_incidents(response)
-                categoria_atual = incident["Category"]
-                #print(f"Categoria atual retification: {categoria_atual}")
-        attempt += 1
+        resposta_retificada_str = enviar_prompt_para_llm(prompt_retificacao)
+        incidente_atual = extrair_security_incidents(resposta_retificada_str)
+        categoria_atual = incidente_atual.get("Category", "Unknown")
+        
+        print(f"Nova Categoria após Retificação: {categoria_atual}")
+
+        tentativa += 1
+
+    print(f"\n--- FIM DO PROCESSO (Máximo de {max_iter} iterações atingido) ---")
+    incidente_atual["Confidence"] = "Low (max iterations reached)"
+    return incidente_atual
 
 
 def self_hint_prompting(prompt, row, colunas, max_iter=4, limite_qualidade=0.9):
