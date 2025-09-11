@@ -9,7 +9,7 @@
   "meta": {
     "provider": "meta",
     "modelo": "llama3.1-70b",
-    "api_key": "",
+    "api_key": "aa",
     "uri": "https://api.llama-api.com",
     "usar_prompt_local": false
   },"meta_local": {
